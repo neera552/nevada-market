@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="pt-MZ">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#09090b">
+<title>NEVADA MARKET MZ | NEVADA 4L</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>tailwind.config={theme:{extend:{fontFamily:{sans:['Inter','sans-serif'],display:['Space Grotesk','sans-serif']},colors:{neon:'#ccff00'}}}}</script>
+<style>
+:root{color-scheme:dark;--bg:#09090b;--fg:#f4f4f5}
+html{background:var(--bg)}
+body{background:var(--bg);color:var(--fg);font-family:Inter,sans-serif;padding-bottom:84px;margin:0}
+.inp{width:100%;background:#18181b;border:1px solid #3f3f46;border-radius:12px;padding:10px 14px;font-size:14px;color:#fff;outline:none}
+.inp:focus{border-color:#ccff00}
+.btn{display:block;width:100%;padding:12px;border-radius:12px;background:#ccff00;color:#000;font-weight:800;font-size:13px;text-align:center}
+.btn2{padding:8px 12px;border-radius:10px;background:#27272a;color:#e4e4e7;font-weight:700;font-size:12px}
+.no-sb::-webkit-scrollbar{display:none}
+</style>
+</head>
+<body>
+<div id="root"><p class="p-10 text-center text-zinc-400 text-sm">A carregar…</p></div>
+<div id="modal" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-black/80 sm:p-4" onclick="if(event.target===this)closeModal()"></div>
+<div id="toast" class="fixed left-1/2 -translate-x-1/2 bottom-24 z-[70] bg-neon text-black text-xs font-bold px-4 py-2 rounded-full opacity-0 pointer-events-none transition-opacity"></div>
+
+<script type="module">
+import{initializeApp}from"https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import{getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut}from"https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import{getFirestore,collection,doc,getDoc,setDoc,addDoc,deleteDoc,onSnapshot,query,where,orderBy,limit,writeBatch}from"https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+const app=initializeApp({apiKey:"AIzaSyBhFiLjVGXoO52W9g3rmPNo_jgSBk3pD9Q",authDomain:"nevada-market-mz.firebaseapp.com",projectId:"nevada-market-mz",storageBucket:"nevada-market-mz.firebasestorage.app",messagingSenderId:"731505822215",appId:"1:731505822215:web:53cd52f11cd49f1e99f8a2"});
+const auth=getAuth(app),db=getFirestore(app);
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const MT=n=>Number(n).toLocaleString('pt-PT')+' MT';
+const dt=t=>new Date(t).toLocaleDateString('pt-PT',{day:'2-digit',month:'short',year:'numeric'});
+let tt;function toast(m){const t=$('#toast');t.textContent=m;t.style.opacity=1;clearTimeout(tt);tt=setTimeout(()=>t.style.opacity=0,3000)}
+
+const CITIES=['Maputo','Matola','Beira','Nampula','Pemba','Chimoio','Tete','Quelimane','Xai-Xai','Inhambane','Lichinga'];
+const CATS=['Tudo','Masculino','Feminino','Acessórios','Kits & Drops'];
+let me=null,listings=[],salesO=[],buysO=[],unsubs=[],pendingProfile=null;
+let view='home',cat='Tudo',cityF='Todas',q='',sub='vendas',authMode='login',photo=null,selSize='';
+
+/* ---------- Conta ---------- */
+const PH=/^8[2-7]\d{7}$/;
+function normPhone(v){let d=String(v).replace(/\D/g,'');if(d.startsWith('258')&&d.length===12)d=d.slice(3);return d}
+function normId(v){v=v.trim().toLowerCase();if(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))return{type:'email',key:v};const d=normPhone(v);return PH.test(d)?{type:'phone',key:d}:null}
+const AE={'auth/email-already-in-use':'Esta conta já existe. Entre com a sua senha.','auth/invalid-credential':'Conta ou senha incorretos.','auth/wrong-password':'Conta ou senha incorretos.','auth/user-not-found':'Conta ou senha incorretos.','auth/weak-password':'A senha deve ter pelo menos 6 caracteres.','auth/network-request-failed':'Sem internet. Tente de novo.','auth/operation-not-allowed':'Ative E-mail/senha em Authentication no Firebase.','auth/too-many-requests':'Muitas tentativas. Aguarde um pouco.'};
+async function submitAuth(e){
+  e.preventDefault();const f=e.target,g=n=>f.elements[n]?f.elements[n].value:'',err=$('#authErr');err.textContent='';
+  const id=normId(g('ident')),pw=g('pw');
+  if(!id)return err.textContent='Use um e-mail válido ou um número moçambicano (ex: 84 123 4567).';
+  if(pw.length<6)return err.textContent='A senha deve ter pelo menos 6 caracteres.';
+  const mail=id.type==='phone'?id.key+'@phone.nevadamarket.mz':id.key;
+  try{
+    if(authMode==='reg'){
+      if(!g('nm').trim())return err.textContent='Escreva o seu nome.';
+      if(pw!==g('pw2'))return err.textContent='As senhas não coincidem.';
+      pendingProfile={name:g('nm').trim(),type:id.type,key:id.key};
+      await createUserWithEmailAndPassword(auth,mail,pw);
+    }else await signInWithEmailAndPassword(auth,mail,pw);
+  }catch(x){pendingProfile=null;err.textContent=AE[x.code]||'Erro: '+x.code}
+}
+function setAuth(m){authMode=m;render()}
+const logout=()=>signOut(auth);
+
+onAuthStateChanged(auth,async u=>{
+  unsubs.forEach(f=>f());unsubs=[];
+  if(!u){me=null;listings=[];salesO=[];buysO=[];render();return}
+  try{
+    const ref=doc(db,'users',u.uid);let s=await getDoc(ref);
+    if(s.exists())me={id:u.uid,...s.data()};
+    else{const p={...(pendingProfile||{name:(u.email||'').split('@')[0],type:'email',key:u.email}),created:Date.now()};await setDoc(ref,p);pendingProfile=null;me={id:u.uid,...p}}
+  }catch(x){toast('Erro ao carregar a conta: '+x.code);return}
+  const er=x=>toast('Erro de dados: '+x.code),by=s=>s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.date-a.date);
+  unsubs=[
+    onSnapshot(query(collection(db,'listings'),orderBy('date','desc'),limit(200)),s=>{listings=s.docs.map(d=>({id:d.id,...d.data()}));refresh()},er),
+    onSnapshot(query(collection(db,'orders'),where('sellerId','==',u.uid)),s=>{salesO=by(s);refresh()},er),
+    onSnapshot(query(collection(db,'orders'),where('buyerId','==',u.uid)),s=>{buysO=by(s);refresh()},er)];
+  view='home';render();
+});
+
+/* ---------- Layout ---------- */
+const credits=()=>`<div class="mt-8 text-center text-[11px] text-zinc-500 leading-relaxed">
+<p class="text-zinc-300 font-semibold">NEVADA MARKET MZ é propriedade da NEVADA 4L Entertainment.</p>
+<p>Criador: <b class="text-zinc-300">Cláudio Silvestre Fabião</b></p>
+<p>Co-criador: Gemini · Upgrade: Claude</p>
+<p><a class="text-neon" href="mailto:nevada4l.entertainment@gmail.com">nevada4l.entertainment@gmail.com</a></p>
+<p class="mt-1">© 2026 NEVADA 4L. Todos os direitos reservados.</p></div>`;
+
+function authHTML(){const r=authMode==='reg';
+  const tab=(m,l)=>`<button onclick="setAuth('${m}')" class="flex-1 py-2 rounded-lg text-sm font-bold ${authMode===m?'bg-white text-black':'text-zinc-400'}">${l}</button>`;
+  return `<div class="min-h-screen flex flex-col justify-center max-w-sm mx-auto px-5 py-8">
+  <div class="text-center mb-6"><div class="w-14 h-14 mx-auto rounded-2xl bg-neon text-black font-display text-xl flex items-center justify-center mb-3">NV</div>
+  <h1 class="font-display text-2xl uppercase">Nevada Market</h1><p class="text-neon text-xs font-bold">🇲🇿 Moçambique</p></div>
+  <div class="flex bg-zinc-900 rounded-xl p-1 mb-4">${tab('login','Entrar')}${tab('reg','Criar conta')}</div>
+  <form onsubmit="submitAuth(event)" class="space-y-3">
+  ${r?'<input name="nm" class="inp" placeholder="Nome completo" autocomplete="name">':''}
+  <input name="ident" class="inp" placeholder="E-mail ou número de telemóvel" autocomplete="username" required>
+  <input name="pw" type="password" class="inp" placeholder="Senha (mínimo 6 caracteres)" minlength="6" autocomplete="${r?'new-password':'current-password'}" required>
+  ${r?'<input name="pw2" type="password" class="inp" placeholder="Confirmar senha" minlength="6" autocomplete="new-password" required>':''}
+  <p id="authErr" class="text-red-400 text-xs min-h-[1rem]"></p>
+  <button class="btn">${r?'Criar conta':'Entrar'}</button></form>${credits()}</div>`}
+
+function render(){
+  if(!me){$('#root').innerHTML=authHTML();return}
+  const nav=[['home','🏠','Explorar'],['sell','＋','Vender'],['hist','🧾','Histórico'],['bank','💰','Banco'],['prof','👤','Perfil']];
+  const body={home:homeHTML,sell:sellHTML,hist:histHTML,bank:bankHTML,prof:profHTML}[view]();
+  $('#root').innerHTML=`<header class="sticky top-0 z-40 bg-zinc-950 border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
+  <div class="flex items-center gap-2"><div class="w-8 h-8 rounded-lg bg-neon text-black font-display text-sm flex items-center justify-center">NV</div>
+  <div class="leading-tight"><b class="font-display uppercase">Nevada Market</b><span class="block text-[10px] text-zinc-400">NEVADA 4L · 🇲🇿</span></div></div>
+  <span class="text-xs text-zinc-400">Olá, <b class="text-white">${esc(me.name.split(' ')[0])}</b></span></header>
+  <main class="max-w-3xl mx-auto px-4 py-4">${body}</main>
+  <nav class="fixed bottom-0 inset-x-0 z-40 bg-zinc-950/95 border-t border-zinc-800 flex justify-around pt-1.5 pb-[calc(6px+env(safe-area-inset-bottom,0px))]">
+  ${nav.map(n=>`<button onclick="go('${n[0]}')" class="flex flex-col items-center px-3 py-1 text-[11px] font-semibold ${view===n[0]?'text-neon':'text-zinc-400'}"><span class="text-lg leading-none">${n[1]}</span>${n[2]}</button>`).join('')}</nav>`;
+  if(view==='home')renderGrid();
+}
+function refresh(){if(!me)return;if(view==='home')renderGrid();else if(view!=='sell')render()}
+function go(v){view=v;window.scrollTo(0,0);render()}
+
+/* ---------- Explorar ---------- */
+function homeHTML(){return `<div class="space-y-3">
+<div class="flex gap-2"><input class="inp" placeholder="Procurar peças, kits, ténis..." value="${esc(q)}" oninput="setQ(this.value)">
+<select class="inp !w-auto" onchange="setCity(this.value)"><option>Todas</option>${CITIES.map(c=>`<option ${c===cityF?'selected':''}>${c}</option>`).join('')}</select></div>
+<div class="flex gap-2 overflow-x-auto no-sb">${CATS.map(c=>`<button onclick="setCat('${c}')" class="shrink-0 px-3.5 py-1.5 rounded-lg text-xs font-bold ${c===cat?'bg-white text-black':'bg-zinc-900 text-zinc-300'}">${c}</button>`).join('')}</div>
+<p id="cnt" class="text-xs text-zinc-400"></p><div id="grid" class="grid grid-cols-2 sm:grid-cols-3 gap-3"></div></div>
+<p class="mt-8 text-center text-[11px] text-zinc-600">NEVADA MARKET MZ · propriedade da NEVADA 4L Entertainment</p>`}
+const card=l=>`<button onclick="openItem('${l.id}')" class="text-left bg-zinc-900 rounded-2xl overflow-hidden border border-zinc-800">
+<div class="aspect-[4/5] bg-zinc-800">${l.img?`<img src="${l.img}" alt="${esc(l.title)}" class="w-full h-full object-cover">`:'<div class="w-full h-full flex items-center justify-center text-4xl">👕</div>'}</div>
+<div class="p-2.5"><p class="text-[11px] text-zinc-400">📍 ${esc(l.city)} · ${esc(l.cond)}</p><h3 class="text-sm font-bold leading-tight">${esc(l.title)}</h3><p class="font-display text-neon mt-1">${MT(l.price)}</p></div></button>`;
+function renderGrid(){const g=$('#grid');if(!g)return;const t=q.trim().toLowerCase(),any=listings.some(l=>l.status==='ativo');
+  const r=listings.filter(l=>l.status==='ativo'&&(cat==='Tudo'||l.cat===cat)&&(cityF==='Todas'||l.city===cityF)&&(!t||(l.title+' '+(l.desc||'')).toLowerCase().includes(t)));
+  $('#cnt').textContent=r.length+(r.length===1?' anúncio':' anúncios');
+  g.innerHTML=r.length?r.map(card).join(''):`<div class="col-span-full text-center py-14 bg-zinc-900 rounded-2xl border border-zinc-800"><p class="font-bold mb-1">${any?'Nenhuma peça encontrada':'Ainda não há anúncios'}</p><p class="text-xs text-zinc-400 mb-4">${any?'Mude a cidade, a categoria ou a pesquisa.':'Seja o primeiro a vender na NEVADA MARKET.'}</p><button onclick="go('sell')" class="btn2 !bg-neon !text-black">Vender uma peça</button></div>`}
+
+/* ---------- Anúncio / Compra ---------- */
+const wa=(n,m)=>`https://wa.me/258${n}?text=${encodeURIComponent(m)}`;
+function openItem(id,keep){const l=listings.find(x=>x.id===id);if(!l)return;
+  if(!keep)selSize=l.sizes.length===1?l.sizes[0]:'';
+  const own=l.owner===me.id;
+  $('#modal').innerHTML=`<div class="bg-zinc-950 border border-zinc-800 w-full max-w-lg rounded-t-3xl sm:rounded-2xl max-h-[92vh] overflow-y-auto p-5 space-y-3">
+  <div class="flex justify-between items-center"><span class="text-xs text-zinc-400">📍 ${esc(l.city)} · ${esc(l.cond)} · ${esc(l.cat)}</span><button onclick="closeModal()" class="btn2">Fechar</button></div>
+  ${l.img?`<img src="${l.img}" alt="${esc(l.title)}" class="w-full max-h-80 object-cover rounded-2xl">`:''}
+  <h2 class="font-display text-xl leading-tight">${esc(l.title)}</h2><p class="font-display text-2xl text-neon">${MT(l.price)}</p>
+  ${l.desc?`<p class="text-sm text-zinc-300">${esc(l.desc)}</p>`:''}
+  <p class="text-xs text-zinc-400">Vendedor: <b class="text-white">${esc(l.seller)}</b></p>
+  <div><p class="text-xs font-bold text-zinc-400 mb-2">Tamanho</p><div class="flex flex-wrap gap-2">${l.sizes.map((s,i)=>`<button onclick="pickSize('${l.id}',${i})" class="px-3.5 py-1.5 rounded-xl text-xs font-bold border ${s===selSize?'bg-white text-black border-white':'border-zinc-700 text-zinc-300'}">${esc(s)}</button>`).join('')}</div></div>
+  ${own?`<p class="text-xs text-zinc-400">Este anúncio é seu.</p>`:l.status!=='ativo'?`<p class="text-xs text-amber-300">Esta peça já está reservada ou vendida.</p>`:`<button onclick="buy('${l.id}')" class="btn !bg-[#25D366] !text-white">💬 Comprar no WhatsApp · ${MT(l.price)}</button>
+  <p class="text-[11px] text-zinc-500 text-center">Vai falar direto com o vendedor. Pagamento e entrega combinam entre vocês.</p>`}</div>`;
+  $('#modal').classList.add('flex');$('#modal').classList.remove('hidden')}
+function pickSize(id,i){const l=listings.find(x=>x.id===id);selSize=l.sizes[i];openItem(id,true)}
+function closeModal(){$('#modal').classList.add('hidden');$('#modal').classList.remove('flex')}
+async function buy(id){const l=listings.find(x=>x.id===id);if(!l||l.status!=='ativo'||l.owner===me.id)return;
+  if(!selSize)return toast('Escolha um tamanho.');
+  const w=window.open('','_blank');
+  try{
+    const b=writeBatch(db);
+    b.set(doc(collection(db,'orders')),{lid:l.id,title:l.title,price:l.price,size:selSize,city:l.city,sellerId:l.owner,seller:l.seller,sellerPhone:l.phone,buyerId:me.id,buyer:me.name,buyerContact:me.key,buyerType:me.type,status:'pendente',date:Date.now()});
+    b.update(doc(db,'listings',l.id),{status:'reservado'});
+    await b.commit();
+  }catch(x){if(w)w.close();return toast('Não foi possível reservar: '+x.code)}
+  const url=wa(l.phone,`Olá ${l.seller}! Sou ${me.name} e quero comprar “${l.title}” (tam. ${selSize}, ${MT(l.price)}) na NEVADA MARKET MZ. Ainda está disponível?`);
+  closeModal();sub='compras';go('hist');
+  if(w)w.location.href=url;else location.href=url}
+async function setOrder(oid,st){const o=salesO.find(x=>x.id===oid);if(!o||o.status!=='pendente')return;
+  try{const b=writeBatch(db);
+    b.update(doc(db,'orders',oid),{status:st,closed:Date.now()});
+    b.update(doc(db,'listings',o.lid),{status:st==='concluida'?'vendido':'ativo'});
+    await b.commit();toast(st==='concluida'?'Venda confirmada!':'Pedido cancelado, peça volta ao feed.')}
+  catch(x){toast('Erro: '+x.code)}}
+
+/* ---------- Vender ---------- */
+function sellHTML(){const ph=me.type==='phone'?me.key:'';
+  const f=(l,h)=>`<div><label class="block text-xs font-bold text-zinc-400 mb-1">${l}</label>${h}</div>`;
+  return `<h2 class="font-display text-xl mb-3">Anunciar peça</h2><form onsubmit="publish(event)" class="space-y-3">
+  <label class="flex items-center justify-center h-36 border-2 border-dashed border-zinc-700 rounded-2xl bg-zinc-900 cursor-pointer overflow-hidden">
+  <img id="pv" class="${photo?'':'hidden'} w-full h-full object-cover" alt="Prévia" ${photo?`src="${photo}"`:''}><span id="pvt" class="${photo?'hidden':''} text-xs text-zinc-400">📷 Toque para escolher a foto</span>
+  <input type="file" accept="image/*" class="hidden" onchange="pickPhoto(this)"></label>
+  ${f('Título','<input name="tt" class="inp" required maxlength="80" placeholder="Ex: Kit Tech Fleece + Jordan 4">')}
+  <div class="grid grid-cols-2 gap-3">${f('Categoria',`<select name="ct" class="inp">${CATS.slice(1).map(c=>`<option>${c}</option>`).join('')}</select>`)}
+  ${f('Condição','<select name="cd" class="inp"><option>Novo</option><option>Seminovo</option><option>Usado</option></select>')}</div>
+  <div class="grid grid-cols-2 gap-3">${f('Preço (MT)','<input name="pr" type="number" min="1" class="inp" required>')}
+  ${f('Cidade',`<select name="cy" class="inp">${CITIES.map(c=>`<option>${c}</option>`).join('')}</select>`)}</div>
+  ${f('Tamanhos (separe por vírgula)','<input name="sz" class="inp" placeholder="S, M, L">')}
+  ${f('WhatsApp / e-Mola do vendedor',`<input name="ph" class="inp" inputmode="tel" required placeholder="84 123 4567" value="${ph}">`)}
+  ${f('Descrição','<textarea name="ds" rows="3" maxlength="400" class="inp"></textarea>')}
+  <button class="btn">Publicar anúncio</button></form>`}
+function pickPhoto(inp){const file=inp.files[0];if(!file)return;const r=new FileReader();
+  r.onload=ev=>{const im=new Image();im.onload=()=>{const s=Math.min(1,640/Math.max(im.width,im.height)),c=document.createElement('canvas');
+    c.width=im.width*s;c.height=im.height*s;c.getContext('2d').drawImage(im,0,0,c.width,c.height);photo=c.toDataURL('image/jpeg',.6);
+    $('#pv').src=photo;$('#pv').classList.remove('hidden');$('#pvt').classList.add('hidden')};im.src=ev.target.result};r.readAsDataURL(file)}
+async function publish(e){e.preventDefault();const f=e.target,g=n=>f.elements[n].value;
+  const ph=normPhone(g('ph'));if(!PH.test(ph))return toast('Número de telemóvel inválido.');
+  const sizes=g('sz').split(',').map(s=>s.trim()).filter(Boolean);
+  try{await addDoc(collection(db,'listings'),{owner:me.id,seller:me.name,title:g('tt').trim(),cat:g('ct'),cond:g('cd'),price:parseInt(g('pr'),10),city:g('cy'),sizes:sizes.length?sizes:['Único'],phone:ph,desc:g('ds').trim(),img:photo,status:'ativo',date:Date.now()});
+    photo=null;toast('Anúncio publicado!');go('home')}
+  catch(x){toast('Não foi possível publicar: '+x.code)}}
+async function delListing(id){try{await deleteDoc(doc(db,'listings',id));toast('Anúncio removido.')}catch(x){toast('Erro: '+x.code)}}
+
+/* ---------- Histórico ---------- */
+const ST={pendente:['Pendente','bg-amber-500/15 text-amber-300'],concluida:['Concluída','bg-emerald-500/15 text-emerald-300'],cancelada:['Cancelada','bg-zinc-700 text-zinc-300'],ativo:['Ativo','bg-sky-500/15 text-sky-300'],reservado:['Reservado','bg-amber-500/15 text-amber-300'],vendido:['Vendido','bg-emerald-500/15 text-emerald-300']};
+const pill=s=>`<span class="text-[10px] font-bold px-2 py-0.5 rounded-md ${(ST[s]||ST.cancelada)[1]}">${(ST[s]||ST.cancelada)[0]}</span>`;
+function orderRow(o,sell){const p=o.status==='pendente';
+  const who=sell?`Comprador: <b class="text-white">${esc(o.buyer)}</b> · ${esc(o.buyerContact)}`:`Vendedor: <b class="text-white">${esc(o.seller)}</b> · ${esc(o.sellerPhone)}`;
+  const acts=sell?(p?`<button onclick="setOrder('${o.id}','concluida')" class="btn2 !bg-neon !text-black">Confirmar venda</button><button onclick="setOrder('${o.id}','cancelada')" class="btn2">Cancelar</button>`:'')+(o.buyerType==='phone'?`<a target="_blank" rel="noopener noreferrer" href="${wa(o.buyerContact,'Olá '+o.buyer+'! Sobre o seu pedido “'+o.title+'” na NEVADA MARKET MZ.')}" class="btn2">WhatsApp</a>`:'')
+    :`<a target="_blank" rel="noopener noreferrer" href="${wa(o.sellerPhone,'Olá '+o.seller+'! Sobre o meu pedido “'+o.title+'” (tam. '+o.size+') na NEVADA MARKET MZ.')}" class="btn2 !bg-[#25D366] !text-white">WhatsApp</a>`;
+  return `<div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-3.5 space-y-1.5"><div class="flex justify-between gap-2"><b class="text-sm">${esc(o.title)}</b>${pill(o.status)}</div>
+  <p class="text-xs text-zinc-400">${MT(o.price)} · Tam. ${esc(o.size)} · ${esc(o.city)} · ${dt(o.date)}</p><p class="text-xs text-zinc-400">${who}</p>
+  <div class="flex flex-wrap gap-2 pt-1">${acts}</div></div>`}
+function histHTML(){
+  const mine=listings.filter(l=>l.owner===me.id);
+  const tab=(k,l,n)=>`<button onclick="setSub('${k}')" class="flex-1 py-2 rounded-lg text-xs font-bold ${sub===k?'bg-white text-black':'text-zinc-400'}">${l} (${n})</button>`;
+  const list=sub==='vendas'?salesO.map(o=>orderRow(o,true)):sub==='compras'?buysO.map(o=>orderRow(o,false)):mine.map(l=>`<div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-3.5 flex justify-between items-center gap-2"><div><b class="text-sm">${esc(l.title)}</b><p class="text-xs text-zinc-400">${MT(l.price)} · ${dt(l.date)}</p></div><div class="flex items-center gap-2">${pill(l.status)}${l.status==='ativo'?`<button onclick="delListing('${l.id}')" class="btn2">Apagar</button>`:''}</div></div>`);
+  const msg={vendas:'Ainda não tem vendas.',compras:'Ainda não fez compras.',anuncios:'Ainda não publicou anúncios.'}[sub];
+  return `<h2 class="font-display text-xl mb-3">Histórico</h2><div class="flex bg-zinc-900 rounded-xl p-1 mb-3">${tab('vendas','Vendas',salesO.length)}${tab('compras','Compras',buysO.length)}${tab('anuncios','Anúncios',mine.length)}</div>
+  <div class="space-y-2.5">${list.length?list.join(''):`<p class="text-center text-sm text-zinc-400 py-12">${msg}</p>`}</div>`}
+
+/* ---------- Banco (registo de vendas) ---------- */
+function bankHTML(){
+  const sum=a=>a.reduce((s,o)=>s+o.price,0),done=salesO.filter(o=>o.status==='concluida'),now=new Date();
+  const month=sum(done.filter(o=>{const d=new Date(o.closed||o.date);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear()}));
+  const pend=sum(salesO.filter(o=>o.status==='pendente')),spent=sum(buysO.filter(o=>o.status==='concluida'));
+  const box=(l,v)=>`<div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-3"><p class="text-[11px] text-zinc-400">${l}</p><p class="font-display text-base">${MT(v)}</p></div>`;
+  return `<h2 class="font-display text-xl mb-3">Banco</h2>
+  <div class="rounded-2xl bg-neon text-black p-5 mb-3"><p class="text-xs font-bold">Total vendido</p><p class="font-display text-3xl">${MT(sum(done))}</p><p class="text-[11px] mt-1">${done.length} ${done.length===1?'venda concluída':'vendas concluídas'} · ${esc(me.name)}</p></div>
+  <div class="grid grid-cols-3 gap-2 mb-2">${box('Este mês',month)}${box('Pendente',pend)}${box('Comprado',spent)}</div>
+  <p class="text-[11px] text-zinc-500 mb-4">Registo das suas vendas. O pagamento é combinado direto entre comprador e vendedor.</p>
+  <b class="text-sm">Vendas concluídas</b><div class="space-y-2 mt-2">${done.map(o=>`<div class="flex justify-between bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2.5"><div><p class="text-sm font-semibold">${esc(o.title)}</p><p class="text-[11px] text-zinc-400">${esc(o.buyer)} · ${dt(o.closed||o.date)}</p></div><b class="text-emerald-400">+${MT(o.price)}</b></div>`).join('')||'<p class="text-sm text-zinc-400 text-center py-8">Ainda sem vendas concluídas.</p>'}</div>`}
+
+/* ---------- Perfil ---------- */
+function profHTML(){return `<h2 class="font-display text-xl mb-3">Perfil</h2>
+  <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-1"><p class="font-bold">${esc(me.name)}</p><p class="text-sm text-zinc-400">${me.type==='email'?'E-mail':'Telemóvel'}: ${esc(me.key)}</p><p class="text-xs text-zinc-500">Membro desde ${dt(me.created)}</p></div>
+  <button onclick="logout()" class="btn2 w-full mt-3 !py-3">Terminar sessão</button>${credits()}`}
+
+const setQ=v=>{q=v;renderGrid()},setCity=v=>{cityF=v;renderGrid()},setCat=v=>{cat=v;render()},setSub=v=>{sub=v;render()};
+Object.assign(window,{submitAuth,setAuth,logout,go,openItem,pickSize,closeModal,buy,setOrder,pickPhoto,publish,delListing,setQ,setCity,setCat,setSub});
+</script>
+</body>
+</html>
